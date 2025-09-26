@@ -344,6 +344,18 @@ class BasicBlock(torch.nn.Module):
 
         return x_pred
 
+class RandomSmooth(nn.Module):
+    def __init__(self, input_shape):
+        super(RandomSmooth, self).__init__()
+        self.noise_generator = nn.Sequential(
+            nn.Linear(input_shape, 64), 
+            nn.ReLU(),
+            nn.Linear(64, input_shape)
+        )
+    def forward(self, x):
+        noise = self.noise_generator(x) 
+        return torch.clamp(x + noise, min=-1, max=1) 
+
 class OCTUF(torch.nn.Module):
     def __init__(self, LayerNo, desired_sparsity):
         super(OCTUF, self).__init__()
@@ -370,6 +382,7 @@ class OCTUF(torch.nn.Module):
         self.fcs = nn.ModuleList(onelayer)
         self.fe = nn.Conv2d(1, 31, 3, padding=1, bias=True)
         self.fe2 = nn.Conv2d(1, 31, 3, padding=1, bias=True)
+        self.random_smooth = RandomSmooth(256)
 
     def forward(self, x, lamda):      
         maskp0 = torch.sigmoid(self.pmask_slope * self.Phi) 
@@ -382,7 +395,8 @@ class OCTUF(torch.nn.Module):
         mask_matrix = self.MyBinarize(maskp - u, self.k, self.t) 
         mask = mask_matrix.unsqueeze(0).unsqueeze(-1) 
         xu_real = zero_filled(x, mask)
-        x = xu_real 
+        x = xu_real
+        x = self.random_smooth(x)
         
         z_pre = self.fe(x) 
         z_cur = self.fe2(x)
@@ -487,5 +501,6 @@ for epoch_i in range(start_epoch + 1, end_epoch + 1):
     output_file = open(log_file_name, 'a')
     output_file.write(output_data)
     output_file.close()
+
 
     torch.save(model.state_dict(), '%s/net_params_%d.pkl' % (model_dir, epoch_i))  # save only the parameters
